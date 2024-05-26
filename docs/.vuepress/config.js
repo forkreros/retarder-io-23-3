@@ -15,7 +15,7 @@ module.exports = {
     }]
   ],
   port: 3030,
-  base: '/retarder-io-23-3-22/',
+  base: '/retarder-io-23-3/',
   theme: 'cool',
   // dest: 'dist',
   head: [
