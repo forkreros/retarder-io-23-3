@@ -212,217 +212,116 @@ COMMIT;
 
 ## RESTfull сервіс для управління даними
 
-### Модуль запуску сервера
-
-```js
-const express = require('express');
-const dotenv = require('dotenv').config();
-const app = express();
-const userRoutes = require('./routes/ProfileManage');
-const { handle404Errors, handleDevErrors, handleProdErrors } = require('./middlewares/errorHandlers');
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use('/', userRoutes);
-
-app.use(handle404Errors);
-app.use(handleDevErrors);
-app.use(handleProdErrors);
-
-app.listen(process.env.SERVER_PORT, () => {
-    console.log(`App is running on port ${process.env.SERVER_PORT}`);
-});
 ```
+from flask import Flask, request, jsonify
+import mysql.connector
 
-### Модуль для з'єднання з базою даних
+app = Flask(__name__)
 
-```js
-const mysql = require('mysql');
-const dotenv = require('dotenv').config();
 
-const db = mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-});
+# Підключення до бази даних
+def connect_to_database():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="1234",
+        database="mydb"
+    )
 
-db.connect((err) => {
-    if (err) {
-        console.error('Error connecting to MySQL:', err);
-        return;
-    }
-    console.log('Connected to MySQL');
-});
 
-module.exports = db;
-```
+# Отримати всіх клієнтів
+@app.route('/clients', methods=['GET'])
+def get_clients():
+    try:
+        db = connect_to_database()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM client")
+        clients = cursor.fetchall()
+        db.close()
+        return jsonify(clients)
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
-### Модуль маршрутів для забезпечення деякого менеджменту акаунтів
 
-```js
-const express = require('express');
-const router = express.Router();
-const userController = require('../controllers/ProfileManage');
+# Отримати клієнта за ID
+@app.route('/clients/<client_id>', methods=['GET'])
+def get_client(client_id):
+    try:
+        db = connect_to_database()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM client WHERE id = %s", (client_id,))
+        client = cursor.fetchone()
+        db.close()
+        if client:
+            return jsonify(client)
+        else:
+            return jsonify({"message": "Client not found"}), 404
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
-router.post('/users', userController.register); // Create a new user
-router.post('/sessions', userController.login); // Create a new session (log in)
-router.delete('/users/:id', userController.deleteRequest); // Delete a user
 
-module.exports = router;
-```
+# Додати нового клієнта
+@app.route('/clients', methods=['POST'])
+def add_client():
+    try:
 
-### Модуль контролерів для забезпечення деякого менеджменту акаунтів
+        data = request.get_json()
+        id = data['id']
+        login = data['login']
+        email = data['email']
+        password = data['password']
+        role_id = int(data['role_id'])
+        db = connect_to_database()
+        cursor = db.cursor()
+        cursor.execute("INSERT INTO client (id, login, email, password, role_id) VALUES (%s, %s, %s, %s, %s)", (id, login, email, password, role_id))
+        db.commit()
+        db.close()
+        return jsonify({"message": "Client added successfully"})
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
-```js
-const { v4: uuidv4 } = require('uuid');
-const db = require('../db');
 
-exports.register = (req, res) => {
-    const {login, email, password} = req.query;
-    const id = uuidv4(); // Generate a UUID
-    const role_id = 1; // Default role for new client
+# Оновити інформацію про клієнта
+@app.route('/clients/<client_id>', methods=['PUT'])
+def update_client(client_id):
+    try:
+        data = request.get_json()
+        login = data['login']
+        email = data['email']
+        password = data['password']
+        role_id = int(data['role_id'])
 
-    // Email validation
-    const emailRegex = /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/;
-    if (!emailRegex.test(email)) {
-        return res.status(400)
-                .json({ error: 'SingUp.WrongEmail' });
-    }
+        db = connect_to_database()
+        cursor = db.cursor()
+        cursor.execute(
+            "UPDATE client SET login = %s, email = %s, password = %s, role_id = %s WHERE id = %s",
+            (login, email, password, role_id, client_id)
+        )
+        db.commit()
+        db.close()
+        if cursor.rowcount == 0:
+            return jsonify({"message": "Client not found"}), 404
+        return jsonify({"message": "Client updated successfully"})
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
-    // Password validation
-    if (password.length < 8) {
-        return res.status(400)
-                .json({ error: 'SingUp.SimplePass' });
-    }
 
-    var sql = "INSERT INTO client (id, login, email, password, role_id) VALUES(?, ?, ?, ?, ?)";
+# Видалити клієнта
+@app.route('/clients/<client_id>', methods=['DELETE'])
+def delete_client(client_id):
+    try:
+        db = connect_to_database()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM client WHERE id = %s", (client_id,))
+        db.commit()
+        db.close()
+        if cursor.rowcount == 0:
+            return jsonify({"message": "Client not found"}), 404
+        return jsonify({"message": "Client deleted successfully"})
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
-    db.query(sql, [id, login, email, password, role_id], (err) =>  {
-        if (err) {
-            console.error('Error in SQL query:', err);
-            if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(400)
-                        .json({ error: 'BusyLogin' });
-            } else {
-                return res.status(500)
-                        .json({ error: 'Internal Server Error' });
-            }
-        } else {
-            res.status(201)
-            .json({ message: 'Registered Successfully' });
-        }
-    });
-};
 
-exports.login = (req, res) => {
-    const {login, email, password} = req.query;
-
-    // Email validation
-    const emailRegex = /^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$/;
-    if (!emailRegex.test(email)) {
-        return res.status(400)
-                .json({ error: 'Login.WrongEmail' });
-    }
-
-    var sql = "SELECT * FROM client WHERE login = ? AND email = ?";
-    db.query(sql, [login, email], (err, results) => {
-        if (err) {
-            console.error('Error in SQL query:', err);
-            return res.status(500)
-                    .json({ error: 'Internal Server Error' });
-        } else {
-            if (results.length === 0) {
-                return res.status(400)
-                        .json({ error: 'Login.AccDoesntExist' });
-            } else {
-                const user = results[0];
-                if (user.password !== password) {
-                    return res.status(400)
-                            .json({ error: 'Login.WrongPass' });
-                } else {
-                    res.status(200)
-                    .json({ message: 'Logged in Successfully' });
-                }
-            }
-        }
-    });
-};
-
-exports.deleteRequest = (req, res) => {
-    const {login, password} = req.query;
-
-    var sql = "SELECT * FROM client WHERE login = ?";
-    db.query(sql, [login], (err, results) => {
-        if (err) {
-            console.error('Error in SQL query:', err);
-            return res.status(500)
-                    .json({ error: 'Internal Server Error' });
-        } else {
-            if (results.length === 0) {
-                return res.status(400)
-                        .json({ error: 'DeleteRequest.AccDoesntExist' });
-            } else {
-                const user = results[0];
-                if (user.password !== password) {
-                    return res.status(400)
-                            .json({ error: 'DeleteRequest.WrongPass' });
-                } else {
-                    var sql = `DELETE FROM client WHERE login = '${login}'`;
-                    db.query(sql, (err) => {
-                        if (err) {
-                            console.error('Error in SQL query:', err);
-                            return res.status(500)
-                                    .json({ error: 'Internal Server Error' });
-                        } else {
-                            res.status(200)
-                            .json({ message: 'Account Deleted Successfully' });
-                        }
-                    });
-                }
-            }
-        }
-    });
-};
-```
-
-## Модуль обробок помилок
-
-```js
-// 404 Error Handler
-function handle404Errors(req, res, next) {
-    const err = new Error('Not Found');
-    err.status = 404;
-    next(err);
-}
-
-// Development Error Handler
-// Will print stacktrace
-function handleDevErrors(err, req, res, next) {
-    if (req.app.get('env') !== 'development') return next(err);
-
-    res.status(err.status || 500);
-    res.json({
-        message: err.message,
-        error: err
-    });
-}
-
-// Production Error Handler
-// No stacktraces leaked to user
-function handleProdErrors(err, req, res, next) {
-    res.status(err.status || 500);
-    res.json({
-        message: err.message,
-        error: {}
-    });
-}
-
-module.exports = {
-    handle404Errors,
-    handleDevErrors,
-    handleProdErrors
-};
+if __name__ == '__main__':
+    app.run(debug=True)
 ```
